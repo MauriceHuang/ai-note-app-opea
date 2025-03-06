@@ -134,7 +134,8 @@ const NoteEditor = () => {
     const newContent = e.target.value;
     setContent(newContent);
     
-    // Get suggestions if content is substantial
+    // get suggestions if content  has more than 50 characters
+    // TODO should not hardcode
     if (newContent.length > 50 && !suggestionsLoading) {
       try {
         setSuggestionsLoading(true);

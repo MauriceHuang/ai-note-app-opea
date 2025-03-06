@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-# Configure logging
+# for logging to debug when deployed
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -20,13 +20,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger('ai_views')
 
-# Initialize the embedding model
+# TODO should not hard code this.
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Initialize cross-encoder model for re-ranking
 cross_encoder = CrossEncoder(settings.CROSS_ENCODER_MODEL)
 
-# Connect to Qdrant
 qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
 
 class SuggestionsView(APIView):
@@ -35,7 +33,7 @@ class SuggestionsView(APIView):
         if not content:
             return Response({"error": "Content is required"}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Call Ollama API to generate suggestions
+        # Call Ollama API from another container
         try:
             ollama_url = f"http://{settings.OLLAMA_HOST}:{settings.OLLAMA_PORT}/api/generate"
             prompt = f"""
@@ -63,13 +61,12 @@ class SuggestionsView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            # Parse the response from Ollama
             ollama_response = response.json()
             generated_text = ollama_response.get('response', '')
             
-            # Try to extract JSON array from the response
+            # extract JSON array from the response and parse into array 
             try:
-                # Find the first [ and last ] in the response
+                # manually identify first [ and last ] in the response
                 start = generated_text.find('[')
                 end = generated_text.rfind(']') + 1
                 
@@ -77,14 +74,13 @@ class SuggestionsView(APIView):
                     json_str = generated_text[start:end]
                     suggestions = json.loads(json_str)
                 else:
-                    # If no JSON array is found, split by newlines and clean up
+                    # split by newlines if more than 1
                     suggestions = [
                         line.strip().strip('-').strip() 
                         for line in generated_text.split('\n') 
                         if line.strip() and not line.strip().startswith('[') and not line.strip().endswith(']')
                     ]
             except json.JSONDecodeError:
-                # If JSON parsing fails, split by newlines and clean up
                 suggestions = [
                     line.strip().strip('-').strip() 
                     for line in generated_text.split('\n') 
@@ -92,6 +88,7 @@ class SuggestionsView(APIView):
                 ]
             
             # Ensure we have at most 3 suggestions
+            # TODO should not hard code this
             suggestions = suggestions[:3]
             
             return Response({"suggestions": suggestions})
@@ -109,41 +106,31 @@ class AskView(APIView):
             return Response({"error": "Question is required"}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Generate embedding for the question
             question_embedding = model.encode(question)
             
-            # Search for relevant notes in Qdrant - retrieve more candidates for re-ranking
+            # retrieve 20 candidates for re-ranking
             search_results = qdrant_client.search(
                 collection_name=settings.QDRANT_COLLECTION,
                 query_vector=question_embedding.tolist(),
-                limit=20  # Increased from 5 to get more candidates for re-ranking
+                # TODO should not hard code this
+                limit=20 
             )
             
-            # Re-rank the search results using cross-encoder
             if search_results:
-                # Prepare pairs for cross-encoder
                 pairs = [[question, result.payload.get('content', '')] for result in search_results]
-                
-                # Get relevance scores
                 scores = cross_encoder.predict(pairs)
-                
-                # Combine results with scores and sort
                 scored_results = list(zip(search_results, scores))
                 scored_results.sort(key=lambda x: x[1], reverse=True)
-                
-                # Take top 5 after re-ranking
                 search_results = [item[0] for item in scored_results[:5]]
-            
-            # Extract relevant content from search results
             context = ""
             for i, result in enumerate(search_results):
                 context += f"Note {i+1}: {result.payload['title']}\n{result.payload['content']}\n\n"
             
-            # If no context is found, return a message
+            # error out
             if not context:
                 return Response({"answer": "I don't have enough information to answer that question. Try adding some notes first."})
             
-            # Call Ollama API to answer the question
+            # Call Ollama API from another container
             ollama_url = f"http://{settings.OLLAMA_HOST}:{settings.OLLAMA_PORT}/api/generate"
             prompt = f"""
             Answer the following question based on the provided context from the user's notes.
@@ -173,7 +160,6 @@ class AskView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
             
-            # Parse the response from Ollama
             ollama_response = response.json()
             answer = ollama_response.get('response', '')
             
@@ -194,39 +180,33 @@ class SearchView(APIView):
             return Response({"error": "Query is required"}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Generate embedding for the query
             query_embedding = model.encode(query)
             
-            # Search for relevant notes in Qdrant - retrieve more candidates for re-ranking
             search_results = qdrant_client.search(
                 collection_name=settings.QDRANT_COLLECTION,
                 query_vector=query_embedding.tolist(),
-                limit=20  # Retrieve more candidates for re-ranking
+                limit=20  
             )
             
             logger.info(f"Found {len(search_results)} initial results using bi-encoder for query: '{query}'")
             
             # Re-rank the search results using cross-encoder
             if search_results:
-                # Prepare pairs for cross-encoder
                 pairs = [[query, result.payload.get('content', '')] for result in search_results]
                 
-                # Get relevance scores
+                # get relevance scores
                 logger.info(f"Using cross-encoder model: {settings.CROSS_ENCODER_MODEL} for re-ranking")
                 scores = cross_encoder.predict(pairs)
                 
-                # Combine results with scores and sort
                 scored_results = list(zip(search_results, scores))
                 scored_results.sort(key=lambda x: x[1], reverse=True)
                 
-                # Log scores for debugging
                 for i, (result, score) in enumerate(scored_results[:limit]):
                     logger.info(f"Re-ranked result {i+1}: Score={score:.4f}, Title={result.payload.get('title', '')}")
                 
-                # Take top N after re-ranking
                 search_results = [item[0] for item in scored_results[:limit]]
             
-            # Format the results
+            # format the results
             formatted_results = []
             for result in search_results:
                 formatted_results.append({

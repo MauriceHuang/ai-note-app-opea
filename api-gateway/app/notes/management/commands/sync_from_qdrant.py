@@ -6,12 +6,11 @@ import uuid
 
 class Command(BaseCommand):
     help = 'Synchronize notes from Qdrant to Django database'
-
+    # since the qdrant's volume persists, this check for the volume and transfer the notes into db
     def handle(self, *args, **options):
-        # Connect to Qdrant
         qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
         
-        # Check if collection exists
+        # check if collection exists
         collections = qdrant_client.get_collections().collections
         collection_exists = any(collection.name == settings.QDRANT_COLLECTION for collection in collections)
         
@@ -19,19 +18,19 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Collection '{settings.QDRANT_COLLECTION}' does not exist in Qdrant"))
             return
         
-        # Get all points from Qdrant
+        # Get points from Qdrant
         points = qdrant_client.scroll(
             collection_name=settings.QDRANT_COLLECTION,
-            limit=1000  # Adjust as needed
-        )[0]  # The first element is the list of points
+            limit=1000 
+        )[0]  
         
         self.stdout.write(f"Found {len(points)} points in Qdrant")
         
-        # Get existing notes in Django
+        # get existing notes in Django
         existing_notes = {str(note.vector_id): note for note in Note.objects.all()}
         self.stdout.write(f"Found {len(existing_notes)} existing notes in Django")
         
-        # Synchronize notes
+        # get the notes into Django db
         created_count = 0
         for point in points:
             vector_id = point.id
@@ -41,14 +40,12 @@ class Command(BaseCommand):
             if vector_id in existing_notes:
                 continue
             
-            # Create note in Django
             note = Note(
                 title=payload.get('title', 'Untitled'),
                 content=payload.get('content', ''),
                 vector_id=uuid.UUID(vector_id)
             )
             
-            # Set note_id if available
             if 'note_id' in payload:
                 note.id = payload['note_id']
             

@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const API_URL = '/api';
 
-// Create an axios instance with default config
+// setting up axios object with default config
 const api = axios.create({
   baseURL: API_URL,
   headers: {
@@ -10,7 +10,7 @@ const api = axios.create({
   },
 });
 
-// Fetch all notes
+// render all notes
 export const fetchNotes = async () => {
   try {
     const response = await api.get('/notes/');
@@ -21,7 +21,7 @@ export const fetchNotes = async () => {
   }
 };
 
-// Fetch a single note by ID
+// get note by ID
 export const fetchNoteById = async (id) => {
   try {
     const response = await api.get(`/notes/${id}/`);
@@ -32,7 +32,7 @@ export const fetchNoteById = async (id) => {
   }
 };
 
-// Create a new note
+// user created a new note
 export const createNote = async (noteData) => {
   try {
     const response = await api.post('/notes/', noteData);
@@ -43,7 +43,7 @@ export const createNote = async (noteData) => {
   }
 };
 
-// Update an existing note
+// user initialised update an existing note
 export const updateNote = async (id, noteData) => {
   try {
     const response = await api.put(`/notes/${id}/`, noteData);
@@ -54,7 +54,7 @@ export const updateNote = async (id, noteData) => {
   }
 };
 
-// Delete a note
+// user initiated Delete note
 export const deleteNote = async (id) => {
   try {
     await api.delete(`/notes/${id}/`);
@@ -65,7 +65,7 @@ export const deleteNote = async (id) => {
   }
 };
 
-// Search notes
+// for user initiated search notes
 export const searchNotes = async (query) => {
   try {
     const response = await api.get('/notes/search/', { params: { q: query } });
@@ -76,7 +76,7 @@ export const searchNotes = async (query) => {
   }
 };
 
-// Get AI-generated suggestions for a note
+// for AI-generated suggestions for a note
 export const getSuggestions = async (noteContent) => {
   try {
     const response = await api.post('/ai/suggestions/', { content: noteContent });
@@ -87,7 +87,7 @@ export const getSuggestions = async (noteContent) => {
   }
 };
 
-// Ask a question about your notes
+// for question about your notes
 export const askQuestion = async (question) => {
   try {
     const response = await api.post('/ai/ask/', { question });

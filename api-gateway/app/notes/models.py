@@ -6,7 +6,7 @@ class Note(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    # Vector embedding ID in Qdrant
+    # embedding id in qdrant
     vector_id = models.UUIDField(null=True, blank=True)
     
     class Meta:
