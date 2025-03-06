@@ -1,0 +1,102 @@
+# Copyright (C) 2024 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3'
+
+services:
+  # Frontend service
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # API Gateway service (Django)
+  api-gateway:
+    build:
+      context: ./api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=True
+      - DJANGO_SECRET_KEY=insecure-development-key-change-in-production
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_COLLECTION=notes
+      - OLLAMA_HOST=ollama-server
+      - OLLAMA_PORT=11434
+      - OLLAMA_MODEL=llama3.2:1b
+      - CROSS_ENCODER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+    depends_on:
+      - qdrant
+      - ollama-server
+    networks:
+      - app-network
+    volumes:
+      - api_data:/app/data
+      - ./api-gateway/startup.sh:/app/startup.sh
+      - ./api-gateway/app/notes/management:/app/app/notes/management
+      - ./api-gateway/app/urls.py:/app/app/urls.py
+      - ./api-gateway/app/ai:/app/app/ai
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    command: >
+      bash -c "
+        chmod +x /app/startup.sh &&
+        /app/startup.sh
+      "
+
+  # Qdrant vector database
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"  # API port
+      - "6334:6334"  # Web UI port
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT_ALLOW_CORS=true
+    networks:
+      - app-network
+
+  # Ollama LLM service
+  ollama-server:
+    image: ollama/ollama:0.5.12
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_KEEP_ALIVE=1h
+    volumes:
+      - ollama_models:/root/.ollama/models
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 3G
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      "ollama serve &
+      sleep 10 &&
+      ollama pull llama3.2:1b &&
+      tail -f /dev/null"
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  ollama_models:
+  api_data:
